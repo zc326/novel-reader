@@ -1,0 +1,477 @@
+# 小说阅读器微服务项目
+
+## 1. 项目概述
+
+本项目是一个基于Spring Boot和Spring Cloud的微服务架构小说阅读器系统，提供用户管理、图书管理、书架管理等核心功能。采用前后端分离设计，通过API网关统一对外提供服务。
+
+## 2. 技术栈详情
+
+### 2.1 核心技术框架
+- **Java版本**: Java 8 (1.8)
+- **构建工具**: Maven 3.x
+- **主框架**: Spring Boot 2.3.12.RELEASE
+- **微服务框架**: Spring Cloud Hoxton.SR12
+- **Web框架**: Spring Web MVC / Spring WebFlux (Gateway)
+
+### 2.2 数据库相关
+- **数据库**: MySQL 5.7+
+- **ORM框架**: MyBatis-Plus 3.4.3
+- **连接池**: Alibaba Druid 1.2.8
+- **数据库驱动**: MySQL Connector/J
+
+### 2.3 缓存与中间件
+- **缓存**: Redis (spring-boot-starter-data-redis)
+
+### 2.4 安全认证
+- **JWT令牌**: JJWT 0.9.1
+- **安全框架**: Spring Security
+- **密码加密**: BCryptPasswordEncoder
+
+### 2.5 API文档
+- **Swagger**: SpringFox Boot Starter 3.0.0
+
+### 2.6 工具库
+- **Lombok**: 简化Java代码
+- **Commons IO**: Apache Commons IO 2.11.0
+- **AOP**: Spring AOP (用于切面编程)
+
+### 2.7 测试框架
+- **单元测试**: JUnit 5 (Jupiter)
+- **集成测试**: Spring Boot Test
+
+## 3. 项目架构
+
+### 3.1 模块划分
+```
+novel-reader/                     # 父项目
+├── novel-common/                 # 公共模块
+├── novel-user/                   # 用户服务
+├── novel-book/                   # 图书服务
+├── novel-bookshelf/              # 书架服务
+└── novel-gateway/                # 网关服务
+```
+
+### 3.2 服务端口分配
+- **网关服务**: 8088
+- **用户服务**: 8081
+- **图书服务**: 8082
+- **书架服务**: 8083
+
+### 3.3 架构图
+```
+                    ┌─────────────┐
+                    │   Client    │
+                    └──────┬──────┘
+                           │
+                    ┌──────▼──────┐
+                    │   Gateway   │  ← 8088
+                    │ (JWT Filter)│
+                    └──┬───┬───┬─┘
+                       │   │   │
+          ┌────────────┘   │   └────────────┐
+          ▼                ▼                ▼
+   ┌─────────────┐ ┌─────────────┐ ┌─────────────┐
+   │ User Service│ │ Book Service│ │Bookshelf Svc│
+   │    :8081     │ │    :8082     │ │    :8083     │
+   └──────┬──────┘ └──────┬──────┘ └──────┬──────┘
+          │                │                │
+          └────────────────┼────────────────┘
+                           │
+                    ┌──────▼──────┐
+                    │   MySQL     │
+                    │   + Redis   │
+                    └─────────────┘
+```
+
+## 4. 核心功能模块
+
+### 4.1 公共模块 (novel-common)
+**职责**: 提供通用组件和共享资源
+
+**核心内容**:
+- **实体类**: User, Book, Chapter, Bookshelf
+- **工具类**: 
+  - `JwtUtil`: JWT令牌生成与验证
+  - `PasswordEncoderUtil`: 密码加密工具
+  - `UserContext`: 用户上下文管理
+- **配置类**:
+  - `MybatisPlusConfig`: MyBatis-Plus分页和乐观锁配置
+  - `RedisConfig`: Redis配置
+- **注解与切面**:
+  - `@AuthToken`: 自定义认证注解
+  - `AuthTokenAspect`: 认证切面处理
+- **结果封装**:
+  - `Result`: 统一响应结果
+  - `ResultCode`: 响应状态码
+- **解析器接口**: `BookParser` (图书内容解析抽象)
+
+### 4.2 用户服务 (novel-user)
+**职责**: 用户注册、登录、信息管理
+
+**核心功能**:
+- 用户注册
+- 用户登录（JWT认证）
+- 用户信息查询与更新
+- 用户权限管理
+
+**技术实现**:
+- Controller: `UserController`
+- Service: `UserService`
+- Mapper: `UserMapper`
+- DTO: `LoginRequest`, `RegisterRequest`, `UpdateUserRequest`
+- 安全配置: `SecurityConfig`
+
+### 4.3 图书服务 (novel-book)
+**职责**: 图书上传、解析、章节管理
+
+**核心功能**:
+- 图书文件上传（支持TXT格式）
+- 图书内容自动解析
+- 章节拆分与管理
+- 图书搜索与列表查询
+- 图书详情查看
+
+**技术实现**:
+- Controller: `BookController`
+- Service: `BookService`
+- Mapper: `BookMapper`, `ChapterMapper`
+- 解析器:
+  - `BookParserFactory`: 解析器工厂
+  - `TxtBookParser`: TXT格式解析器
+- 安全配置: `SecurityConfig`
+
+### 4.4 书架服务 (novel-bookshelf)
+**职责**: 用户书架管理、阅读进度跟踪
+
+**核心功能**:
+- 添加图书到书架
+- 从书架移除图书
+- 查询用户书架列表
+- 更新阅读进度
+- 记录最后阅读章节
+
+**技术实现**:
+- Controller: `BookshelfController`
+- Service: `BookshelfService`
+- Mapper: `BookshelfMapper`
+- 安全配置: `SecurityConfig`
+
+### 4.5 网关服务 (novel-gateway)
+**职责**: 路由转发、JWT认证、请求过滤
+
+**核心功能**:
+- 统一入口路由
+- JWT令牌验证
+- 跨域处理
+- 负载均衡（可扩展）
+
+**技术实现**:
+- 过滤器: `JwtAuthenticationFilter`
+- 路由配置: `application.yml`中定义
+- 基于Spring Cloud Gateway (Reactive)
+
+## 5. 数据库设计
+
+### 5.1 数据库
+- **名称**: novel_reader
+- **字符集**: utf8mb4
+- **排序规则**: utf8mb4_unicode_ci
+
+### 5.2 核心表结构
+
+#### 用户表 (user)
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | BIGINT | 主键，自增 |
+| username | VARCHAR(50) | 用户名，唯一 |
+| password | VARCHAR(100) | BCrypt加密密码 |
+| email | VARCHAR(100) | 邮箱 |
+| nickname | VARCHAR(50) | 昵称 |
+| avatar | VARCHAR(255) | 头像URL |
+| status | TINYINT | 状态：1正常，0禁用 |
+| deleted | TINYINT | 逻辑删除标记 |
+| create_time | DATETIME | 创建时间 |
+| update_time | DATETIME | 更新时间 |
+
+#### 图书表 (book)
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | BIGINT | 主键，自增 |
+| book_name | VARCHAR(255) | 书名 |
+| author | VARCHAR(100) | 作者 |
+| description | TEXT | 简介 |
+| cover_image | VARCHAR(500) | 封面图片 |
+| upload_user_id | BIGINT | 上传用户ID |
+| chapter_count | INT | 总章节数 |
+| total_word_count | INT | 总字数 |
+| file_size | BIGINT | 文件大小(字节) |
+| status | TINYINT | 状态：1正常，0下架 |
+| deleted | TINYINT | 逻辑删除标记 |
+| create_time | DATETIME | 创建时间 |
+| update_time | DATETIME | 更新时间 |
+
+#### 章节表 (chapter)
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | BIGINT | 主键，自增 |
+| book_id | BIGINT | 所属图书ID（外键） |
+| chapter_num | INT | 章节序号 |
+| chapter_title | VARCHAR(255) | 章节标题 |
+| content | LONGTEXT | 章节内容 |
+| word_count | INT | 章节字数 |
+| content_size | BIGINT | 内容字节数 |
+| status | TINYINT | 状态 |
+| deleted | TINYINT | 逻辑删除标记 |
+| create_time | DATETIME | 创建时间 |
+
+#### 书架表 (bookshelf)
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | BIGINT | 主键，自增 |
+| user_id | BIGINT | 用户ID |
+| book_id | BIGINT | 图书ID |
+| last_read_chapter | INT | 最后阅读章节 |
+| read_progress | INT | 阅读进度百分比 |
+| read_time | DATETIME | 最后阅读时间 |
+| deleted | TINYINT | 逻辑删除标记 |
+| create_time | DATETIME | 加入时间 |
+
+### 5.3 设计特点
+- **逻辑删除**: 所有表都包含`deleted`字段，使用MyBatis-Plus的`@TableLogic`注解
+- **自动填充**: `create_time`和`update_time`使用MyBatis-Plus的`FieldFill`自动填充
+- **索引优化**: 为常用查询字段建立索引
+- **外键约束**: 章节表对图书表有外键约束，级联删除
+
+## 6. 安全设计
+
+### 6.1 认证流程
+```
+1. 用户登录 → 验证用户名密码 → 生成JWT Token
+2. 客户端请求 → 携带Token → Gateway验证
+3. Gateway → 提取用户信息 → 转发到微服务
+4. 微服务 → @AuthToken注解 → 切面验证权限
+```
+
+### 6.2 JWT配置
+- **密钥**: novel-reader-secret-key-2024 (可配置)
+- **有效期**: 86400000ms (24小时，可配置)
+- **算法**: HS512
+- **载荷**: userId, username, subject, iat, exp
+
+### 6.3 密码安全
+- 使用BCrypt强哈希算法
+- 盐值随机生成
+- 不可逆加密
+
+### 6.4 权限控制
+- 基于`@AuthToken`注解的方法级权限控制
+- AOP切面拦截验证
+- 用户上下文传递 (`UserContext`)
+
+## 7. 关键技术实现
+
+### 7.1 MyBatis-Plus特性应用
+- **分页插件**: 支持MySQL分页，最大限制500条
+- **乐观锁**: 防止并发更新冲突
+- **逻辑删除**: 自动处理软删除
+- **自动填充**: 时间字段自动填充
+- **BaseMapper**: 通用CRUD操作
+
+### 7.2 图书解析机制
+- **策略模式**: `BookParser`接口定义解析规范
+- **工厂模式**: `BookParserFactory`根据文件类型选择解析器
+- **当前支持**: TXT格式解析 (`TxtBookParser`)
+- **扩展性**: 可轻松添加EPUB、PDF等格式解析器
+
+### 7.3 统一响应格式
+```json
+{
+  "code": 200,
+  "message": "success",
+  "data": {}
+}
+```
+
+### 7.4 异常处理
+- 全局异常处理器（待完善）
+- 统一错误码定义
+- 友好的错误提示
+
+## 8. 部署架构
+
+### 8.1 开发环境
+```
+┌─────────────────────────────────────┐
+│         Developer Machine           │
+├─────────────────────────────────────┤
+│  Gateway :8088                      │
+│  User    :8081                      │
+│  Book    :8082                      │
+│  BookShelf:8083                     │
+│  MySQL   :3306                      │
+│  Redis   :6379                      │
+└─────────────────────────────────────┘
+```
+
+### 8.2 生产环境建议
+- **服务注册发现**: 集成Nacos或Eureka
+- **配置中心**: 使用Nacos Config或Spring Cloud Config
+- **负载均衡**: Spring Cloud LoadBalancer
+- **熔断降级**: 集成Resilience4j或Sentinel
+- **链路追踪**: 集成Sleuth + Zipkin
+- **容器化**: Docker + Kubernetes
+- **CI/CD**: Jenkins或GitLab CI
+
+## 9. 项目特色与优势
+
+### 9.1 技术优势
+1. **微服务架构**: 模块解耦，独立部署，易于扩展
+2. **统一网关**: 集中认证、路由、限流
+3. **JWT无状态认证**: 适合分布式系统
+4. **MyBatis-Plus**: 简化数据访问层开发
+5. **逻辑删除**: 数据安全，可恢复
+6. **RESTful API**: 标准化接口设计
+7. **Swagger文档**: 自动生成API文档
+
+### 9.2 业务特色
+1. **智能解析**: 自动识别章节，拆分内容
+2. **阅读进度**: 精确记录用户阅读位置
+3. **书架管理**: 个性化图书收藏
+4. **多格式支持**: 预留扩展接口（目前支持TXT）
+
+## 10. 待完善功能
+
+### 10.1 短期优化
+- [ ] 全局异常处理器
+- [ ] 参数校验增强
+- [ ] 接口限流机制
+- [ ] 日志统一管理
+- [ ] 文件上传大小限制
+- [ ] 图片压缩与存储优化
+
+### 10.2 中期扩展
+- [ ] 支持EPUB/PDF格式
+- [ ] 图书搜索功能（Elasticsearch）
+- [ ] 阅读统计与分析
+- [ ] 评论与评分系统
+- [ ] 推荐算法
+- [ ] 消息通知
+
+### 10.3 长期规划
+- [ ] 移动端APP
+- [ ] 在线阅读器前端
+- [ ] 付费章节功能
+- [ ] 作者后台系统
+- [ ] 版权保护机制
+- [ ] 分布式文件系统（MinIO/OSS）
+
+## 11. 开发规范
+
+### 11.1 代码规范
+- 遵循阿里巴巴Java开发手册
+- 使用Lombok简化代码
+- 统一异常处理
+- 合理的注释规范
+
+### 11.2 接口规范
+- RESTful风格
+- 统一响应格式
+- HTTP状态码规范使用
+- 版本控制（URL中包含版本号）
+
+### 11.3 数据库规范
+- 表名小写，下划线分隔
+- 必须包含主键、创建时间、更新时间
+- 合理使用索引
+- 避免大事务
+
+## 12. 技术选型理由
+
+| 技术 | 选型理由 |
+|------|---------|
+| Spring Boot | 快速开发，约定优于配置，生态丰富 |
+| Spring Cloud | 成熟的微服务解决方案 |
+| MyBatis-Plus | 简化MyBatis，提供强大CRUD功能 |
+| Druid | 高性能连接池，监控功能强大 |
+| JWT | 无状态，适合微服务认证 |
+| Redis | 高性能缓存，支持多种数据结构 |
+| Swagger | 自动生成API文档，方便调试 |
+| Lombok | 减少样板代码，提高开发效率 |
+
+## 13. 总结
+
+本项目采用主流的微服务技术栈，具有良好的可扩展性和维护性。通过合理的模块划分和技术选型，实现了用户管理、图书管理、书架管理等核心功能。后续可根据业务需求逐步完善功能，提升系统性能和用户体验。
+
+## 13. 最新更新 (2026-05-06)
+
+### 13.1 功能增强
+
+#### 图书上传优化
+- ✅ **自动元数据提取**: 从TXT文件中自动识别书名、作者、简介
+  - 支持格式: `书名 作者：xxx` 或 `作者: xxx`
+  - 支持多种简介关键词: `内容简介`、`简介`、`内容提要`、`故事梗概`
+  - 优先级: 文件提取 > 用户输入 > 默认值
+  
+- ✅ **智能编码检测**: 自动识别文件编码
+  - 支持 UTF-8、GBK、UTF-16LE、UTF-16BE
+  - 通过BOM头和内容特征双重检测
+  - 解决中文乱码问题
+  
+- ✅ **章节解析优化**
+  - 支持多种章节格式: `第X章`、`第X节`、`第X卷`等
+  - chapter_title 只存储标题部分（如"山边小村"），不包含前缀
+  - 修复大文件内容丢失问题
+  - 字节流回退机制确保完整读取
+
+#### 图书管理
+- ✅ **新增更新接口**: `POST /book/update`
+  - 支持更新书名、作者、简介
+  - 权限控制：仅上传者可修改
+  - 选择性更新：只更新提供的字段
+  - 自动清除缓存
+
+### 13.2 Bug修复
+
+#### Redis缓存一致性
+- ✅ 上传/更新/删除图书后自动清除列表缓存
+- ✅ 确保Redis与MySQL数据一致
+- ✅ 新增 `clearBookListCache()` 方法统一管理缓存清除
+
+#### 编码与序列化
+- ✅ 修复 LocalDateTime 序列化问题（添加 JavaTimeModule）
+- ✅ 修复 PushbackInputStream 缓冲区溢出（扩容至8192字节）
+- ✅ 修复 Java 8 兼容性问题（移除 readAllBytes()）
+
+#### 文件上传
+- ✅ 提升上传限制至 200MB
+- ✅ 修复章节内容为空的问题
+- ✅ 修复书籍简介未保存的问题
+
+### 13.3 技术改进
+
+#### 认证机制
+- ✅ 网关JWT验证增强（使用JJWT库真正验证签名）
+- ✅ AuthToken切面支持从Authorization Header解析Token
+- ✅ 支持Postman等工具直接测试（无需浏览器插件）
+
+#### 日志与调试
+- ✅ 添加详细的元数据提取日志
+- ✅ 添加编码检测日志
+- ✅ 添加章节解析进度日志
+- ✅ 添加缓存清除日志
+
+### 13.4 已知问题与解决方案
+
+| 问题 | 原因 | 解决方案 |
+|------|------|----------|
+| Swagger无法发送Token | ModHeader无法拦截AJAX请求 | 使用Postman测试或通过网关访问 |
+| Gateway不支持Swagger | WebFlux与SpringFox不兼容 | 提供静态HTML导航页面 |
+| 章节内容为空 | 字节流未回退 | 使用PushbackInputStream.unread() |
+| Redis数据不一致 | 缓存未及时清除 | 写操作后调用clearBookListCache() |
+| 中文乱码 | 编码检测不准确 | 增强编码检测逻辑 |
+
+---
+
+**文档版本**: v2.0  
+**更新日期**: 2026-05-06  
+**维护者**: 开发团队
