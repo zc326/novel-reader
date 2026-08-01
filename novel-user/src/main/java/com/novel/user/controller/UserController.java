@@ -57,13 +57,10 @@ public class UserController {
     @AuthToken
     @ApiOperation(value = "获取用户信息", notes = "获取当前登录用户信息")
     public Result<UserInfoResponse> getUserInfo() {
-        Long userId = UserContext.getUserId();
-        if (userId == null) {
-            return Result.error(ResultCode.UNAUTHORIZED);
-        }
+        Long userId = requireUserId();
         User user = userService.getById(userId);
         if (user == null) {
-            return Result.error(ResultCode.NOT_FOUND);
+            throw new com.novel.common.exception.BusinessException(ResultCode.NOT_FOUND);
         }
         UserInfoResponse response = new UserInfoResponse();
         response.setUserId(user.getId());
@@ -77,13 +74,10 @@ public class UserController {
     @AuthToken
     @ApiOperation(value = "更新用户信息", notes = "更新当前登录用户的信息，仅可更新昵称和邮箱")
     public Result<String> updateUserInfo(@Validated @RequestBody UpdateUserRequest request) {
-        Long userId = UserContext.getUserId();
-        if (userId == null) {
-            return Result.error(ResultCode.UNAUTHORIZED);
-        }
+        Long userId = requireUserId();
         User user = userService.getById(userId);
         if (user == null) {
-            return Result.error(ResultCode.NOT_FOUND);
+            throw new com.novel.common.exception.BusinessException(ResultCode.NOT_FOUND);
         }
         userService.updateUser(userId, request);
         return Result.success("更新成功");
@@ -135,5 +129,16 @@ public class UserController {
         public void setNickname(String nickname) { this.nickname = nickname; }
         public String getEmail() { return email; }
         public void setEmail(String email) { this.email = email; }
+    }
+
+    /**
+     * 从 UserContext 获取当前登录用户ID，缺失则抛出业务异常（由全局处理器统一返回401）。
+     */
+    private Long requireUserId() {
+        Long userId = UserContext.getUserId();
+        if (userId == null) {
+            throw new com.novel.common.exception.BusinessException(ResultCode.UNAUTHORIZED);
+        }
+        return userId;
     }
 }

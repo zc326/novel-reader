@@ -53,8 +53,11 @@ public class BookService {
             fileType = originalFilename.substring(originalFilename.lastIndexOf(".") + 1);
         }
 
+        // 只读取一次文件内容，后续元数据提取、编码检测、解析均复用该 byte[]
+        byte[] fileBytes = file.getBytes();
+
         // 从文件内容中提取书名、作者和简介
-        BookMetadata metadata = extractBookMetadata(file, fileType);
+        BookMetadata metadata = extractBookMetadata(fileBytes, fileType);
         log.info("文件元数据提取结果 - 书名: {}, 作者: {}, 简介长度: {}", 
                 metadata.getBookName(), metadata.getAuthor(), 
                 metadata.getDescription() != null ? metadata.getDescription().length() : 0);
@@ -113,7 +116,7 @@ public class BookService {
         bookMapper.insert(book);
 
         try {
-            InputStream inputStream = detectAndGetInputStream(file);
+            InputStream inputStream = detectAndGetInputStream(fileBytes);
             BookParser parser = bookParserFactory.getParser(fileType);
             List<Chapter> chapters = parser.parse(inputStream, book.getId());
 
@@ -143,9 +146,9 @@ public class BookService {
         return book;
     }
 
-    private InputStream detectAndGetInputStream(MultipartFile file) throws IOException {
+    private InputStream detectAndGetInputStream(byte[] fileBytes) throws IOException {
         byte[] headerBytes = new byte[3];
-        ByteArrayInputStream byteArrayInputStream = new ByteArrayInputStream(file.getBytes());
+        ByteArrayInputStream byteArrayInputStream = new ByteArrayInputStream(fileBytes);
         byteArrayInputStream.read(headerBytes);
 
         Charset charset = StandardCharsets.UTF_8;
@@ -154,19 +157,19 @@ public class BookService {
         } else if (headerBytes[0] == (byte) 0xFE && headerBytes[1] == (byte) 0xFF) {
             charset = StandardCharsets.UTF_16BE;
         } else {
-            String content = new String(file.getBytes(), 0, Math.min(10000, (int) file.getSize()), StandardCharsets.UTF_8);
+            String content = new String(fileBytes, 0, Math.min(10000, fileBytes.length), StandardCharsets.UTF_8);
             if (!content.equals(new String(content.getBytes(StandardCharsets.UTF_8), StandardCharsets.UTF_8))) {
                 charset = Charset.forName("GBK");
             }
         }
 
-        return new ByteArrayInputStream(file.getBytes());
+        return new ByteArrayInputStream(fileBytes);
     }
 
     /**
      * 从文件内容中提取书名、作者和简介
      */
-    private BookMetadata extractBookMetadata(MultipartFile file, String fileType) {
+    private BookMetadata extractBookMetadata(byte[] fileBytes, String fileType) {
         BookMetadata metadata = new BookMetadata();
         
         if (!"txt".equalsIgnoreCase(fileType)) {
@@ -174,8 +177,8 @@ public class BookService {
         }
         
         try {
-            // 读取文件前2000字节进行元数据提取
-            byte[] bytes = file.getBytes();
+            // 复用已读取的文件内容，避免重复读取大文件
+            byte[] bytes = fileBytes;
             int readLength = Math.min(2000, bytes.length);
             
             // 检测编码
@@ -288,13 +291,30 @@ public class BookService {
     }
 
     /**
-     * 清除图书列表缓存
+     * 清除图书列表缓存。
+     * 使用 SCAN 游标迭代替代 KEYS，避免在生产 Redis 上阻塞实例。
      */
     private void clearBookListCache() {
         try {
-            // 删除所有 book:list:* 模式的key
-            java.util.Set<String> keys = redisTemplate.keys("book:list:*");
-            if (keys != null && !keys.isEmpty()) {
+            String pattern = "book:list:*";
+            java.util.Set<String> keys = new java.util.HashSet<>();
+            // SCAN 分批迭代，单次 SCAN_COUNT 100，避免一次性拉取全部 key 造成阻塞
+            redisTemplate.execute((org.springframework.data.redis.core.RedisCallback<java.util.Set<String>>) connection -> {
+                org.springframework.data.redis.core.ScanOptions options = org.springframework.data.redis.core.ScanOptions.scanOptions()
+                        .match(pattern)
+                        .count(100)
+                        .build();
+                try (org.springframework.data.redis.core.Cursor<byte[]> cursor = connection.scan(options)) {
+                    while (cursor.hasNext()) {
+                        keys.add(new String(cursor.next(), StandardCharsets.UTF_8));
+                    }
+                } catch (java.io.IOException e) {
+                    log.error("扫描图书列表缓存 key 失败", e);
+                }
+                return keys;
+            });
+
+            if (!keys.isEmpty()) {
                 redisTemplate.delete(keys);
                 log.info("已清除 {} 个图书列表缓存", keys.size());
             }

@@ -1,5 +1,7 @@
 package com.novel.common.aspect;
 
+import com.novel.common.result.Result;
+import com.novel.common.result.ResultCode;
 import com.novel.common.utils.JwtUtil;
 import com.novel.common.utils.UserContext;
 import io.jsonwebtoken.Claims;
@@ -19,90 +21,66 @@ import javax.servlet.http.HttpServletRequest;
 @Configuration
 public class AuthTokenAspect {
 
-    @Autowired(required = false)
+    @Autowired
     private JwtUtil jwtUtil;
 
     @Around("@annotation(com.novel.common.annotation.AuthToken)")
     public Object around(ProceedingJoinPoint joinPoint) throws Throwable {
-        log.info("=== AuthTokenAspect 被触发 ===");
-        log.info("目标方法: {}", joinPoint.getSignature().getName());
-
         ServletRequestAttributes attributes = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
         if (attributes == null) {
-            log.warn("无法获取请求上下文");
-            return joinPoint.proceed();
+            log.warn("无法获取请求上下文，拒绝访问: {}", joinPoint.getSignature().getName());
+            return Result.error(ResultCode.UNAUTHORIZED);
         }
 
         HttpServletRequest request = attributes.getRequest();
-        
-        // 打印所有Header，用于调试
-        log.info("=== 请求头列表 ===");
-        java.util.Enumeration<String> headerNames = request.getHeaderNames();
-        while (headerNames.hasMoreElements()) {
-            String headerName = headerNames.nextElement();
-            log.info("{}: {}", headerName, request.getHeader(headerName));
-        }
-        log.info("==================");
-        
-        // 优先从 X-User-Id Header 获取（网关传递）
+
+        // 优先从网关传递的 Header 获取身份信息
         String userIdStr = request.getHeader("X-User-Id");
         String username = request.getHeader("X-Username");
 
-        log.info("请求路径: {}", request.getRequestURI());
-        log.info("X-User-Id header: {}", userIdStr);
-        log.info("X-Username header: {}", username);
-
         Long userId = null;
-        
-        // 如果网关没有传递Header，尝试从 Authorization Token 中解析
-        if (userIdStr == null || userIdStr.trim().isEmpty()) {
+
+        if (!isBlank(userIdStr)) {
+            try {
+                userId = Long.parseLong(userIdStr.trim());
+            } catch (NumberFormatException e) {
+                log.error("解析 X-User-Id 失败: {}", userIdStr);
+            }
+        } else {
+            // 网关未传递时，尝试从 Authorization Token 解析（兜底逻辑）
             String authHeader = request.getHeader("Authorization");
             if (authHeader != null && authHeader.startsWith("Bearer ")) {
                 String token = authHeader.substring(7);
-                log.info("从Authorization Header获取Token，尝试解析");
-                
-                if (jwtUtil != null) {
-                    try {
-                        Claims claims = jwtUtil.getClaimsFromToken(token);
-                        if (claims != null) {
-                            userId = jwtUtil.getUserIdFromToken(token);
-                            username = jwtUtil.getUsernameFromToken(token);
-                            log.info("Token解析成功 - userId: {}, username: {}", userId, username);
-                        } else {
-                            log.warn("Token解析失败，claims为null");
-                        }
-                    } catch (Exception e) {
-                        log.error("Token解析异常: {}", e.getMessage());
-                    }
-                } else {
-                    log.warn("JwtUtil未注入，无法解析Token");
+                Claims claims = jwtUtil.getClaimsFromToken(token);
+                if (claims != null && jwtUtil.validateToken(token)) {
+                    userId = jwtUtil.getUserIdFromToken(token);
+                    username = jwtUtil.getUsernameFromToken(token);
                 }
             }
-        } else {
-            // 从网关传递的Header中解析
-            try {
-                userId = Long.parseLong(userIdStr.trim());
-                log.info("解析userId成功: {}", userId);
-            } catch (NumberFormatException e) {
-                log.error("解析X-User-Id失败: {}", userIdStr);
-            }
         }
 
-        UserContext.setUserId(userId);
-        UserContext.setUsername(username);
+        // 未解析出有效用户身份则拒绝放行，避免无校验直接 proceed
+        if (userId == null) {
+            log.warn("未获取到有效用户身份，拒绝访问: {}", request.getRequestURI());
+            return Result.error(ResultCode.UNAUTHORIZED);
+        }
 
-        log.info("UserContext设置完成 - userId: {}, username: {}", userId, username);
+        // 仅存入非空值，避免污染上下文
+        UserContext.setUserId(userId);
+        if (username != null && !username.trim().isEmpty()) {
+            UserContext.setUsername(username.trim());
+        } else {
+            UserContext.setUsername("");
+        }
 
         try {
-            Object result = joinPoint.proceed();
-            log.info("方法执行成功");
-            return result;
-        } catch (Exception e) {
-            log.error("方法执行异常", e);
-            throw e;
+            return joinPoint.proceed();
         } finally {
             UserContext.clear();
-            log.info("=== AuthTokenAspect 结束 ===");
         }
+    }
+
+    private boolean isBlank(String s) {
+        return s == null || s.trim().isEmpty();
     }
 }

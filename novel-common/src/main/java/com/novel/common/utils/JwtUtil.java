@@ -3,6 +3,10 @@ package com.novel.common.utils;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;
+import io.jsonwebtoken.SignatureException;
+import io.jsonwebtoken.ExpiredJwtException;
+import io.jsonwebtoken.MalformedJwtException;
+import io.jsonwebtoken.UnsupportedJwtException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -71,7 +75,33 @@ public class JwtUtil {
         return claims.getExpiration().before(new Date());
     }
 
+    /**
+     * 完整校验 Token：
+     * 1. 签名/格式有效（parseClaimsJws 已校验签名算法与签名值）
+     * 2. 未过期
+     * 3. 必要字段 userId、username 均存在且非空
+     */
     public boolean validateToken(String token) {
-        return !isTokenExpired(token);
+        Claims claims = getClaimsFromToken(token);
+        if (claims == null) {
+            return false;
+        }
+        if (isTokenExpired(token)) {
+            return false;
+        }
+        Object userId = claims.get("userId");
+        Object username = claims.get("username");
+        return userId != null && username != null && !username.toString().trim().isEmpty();
+    }
+
+    /**
+     * 解析 Token 并捕获所有 JWT 相关异常，便于上层区分错误类型。
+     */
+    public Claims parseClaimsJwsToken(String token) throws ExpiredJwtException, UnsupportedJwtException,
+            MalformedJwtException, SignatureException, IllegalArgumentException {
+        return Jwts.parser()
+                .setSigningKey(secret)
+                .parseClaimsJws(token)
+                .getBody();
     }
 }

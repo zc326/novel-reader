@@ -17,7 +17,8 @@ public class UserContext {
     }
 
     public static String getUsername() {
-        return usernameHolder.get();
+        String username = usernameHolder.get();
+        return username != null ? username : "";
     }
 
     public static void clear() {

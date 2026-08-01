@@ -3,6 +3,7 @@ package com.novel.bookshelf.controller;
 import com.novel.bookshelf.service.BookshelfService;
 import com.novel.common.annotation.AuthToken;
 import com.novel.common.entity.Bookshelf;
+import com.novel.common.exception.BusinessException;
 import com.novel.common.result.Result;
 import com.novel.common.result.ResultCode;
 import com.novel.common.utils.UserContext;
@@ -30,13 +31,10 @@ public class BookshelfController {
     @AuthToken
     @ApiOperation(value = "添加图书到书架", notes = "将图书添加到当前用户的书架，需要认证")
     public Result<String> addToBookshelf(@RequestBody AddToBookshelfRequest request) {
-        Long userId = UserContext.getUserId();
-        if (userId == null) {
-            return Result.error(ResultCode.UNAUTHORIZED);
-        }
+        Long userId = requireUserId();
 
         if (bookshelfService.isInBookshelf(userId, request.getBookId())) {
-            return Result.error(ResultCode.BOOK_ALREADY_IN_BOOKSHELF);
+            throw new BusinessException(ResultCode.BOOK_ALREADY_IN_BOOKSHELF);
         }
 
         Bookshelf bookshelf = new Bookshelf();
@@ -50,28 +48,12 @@ public class BookshelfController {
         return Result.success("添加成功");
     }
 
-    @PostMapping("/list")
+    @GetMapping("/list")
     @AuthToken
     @ApiOperation(value = "获取书架列表", notes = "获取当前用户的书架列表，需要认证")
-    public Result<List<Bookshelf>> getBookshelf(
-            @RequestParam(required = false) String token) {
-        Long userId = UserContext.getUserId();
-        log.info("getBookshelf - userId from UserContext: {}", userId);
-        
-        // 如果UserContext中没有userId，尝试从请求参数中获取token
-        if (userId == null && token != null && !token.isEmpty()) {
-            log.info("尝试从请求参数中解析token");
-            // 这里可以添加token解析逻辑，或者直接返回错误提示使用Postman
-            return Result.error(ResultCode.UNAUTHORIZED);
-        }
-        
-        if (userId == null) {
-            log.warn("userId is null, returning UNAUTHORIZED");
-            return Result.error(ResultCode.UNAUTHORIZED);
-        }
-
+    public Result<List<Bookshelf>> getBookshelf() {
+        Long userId = requireUserId();
         List<Bookshelf> result = bookshelfService.getByUserId(userId);
-
         return Result.success(result);
     }
 
@@ -79,15 +61,11 @@ public class BookshelfController {
     @AuthToken
     @ApiOperation(value = "从书架移除图书", notes = "从当前用户的书架中移除图书，需要认证")
     public Result<String> removeFromBookshelf(@RequestBody RemoveFromBookshelfRequest request) {
-        Long userId = UserContext.getUserId();
-        if (userId == null) {
-            return Result.error(ResultCode.UNAUTHORIZED);
-        }
+        Long userId = requireUserId();
 
         boolean success = bookshelfService.removeFromBookshelf(userId, request.getBookId());
-
         if (!success) {
-            return Result.error(ResultCode.BOOKSHELF_NOT_IN);
+            throw new BusinessException(ResultCode.BOOKSHELF_NOT_IN);
         }
 
         return Result.success("移除成功");
@@ -97,10 +75,7 @@ public class BookshelfController {
     @AuthToken
     @ApiOperation(value = "更新阅读进度", notes = "更新当前用户的阅读进度，需要认证")
     public Result<String> updateReadProgress(@RequestBody UpdateProgressRequest request) {
-        Long userId = UserContext.getUserId();
-        if (userId == null) {
-            return Result.error(ResultCode.UNAUTHORIZED);
-        }
+        Long userId = requireUserId();
 
         bookshelfService.updateProgress(userId, request.getBookId(),
                 request.getChapterId().intValue(), request.getProgress());
@@ -147,5 +122,16 @@ public class BookshelfController {
         public void setChapterId(Long chapterId) { this.chapterId = chapterId; }
         public Integer getProgress() { return progress; }
         public void setProgress(Integer progress) { this.progress = progress; }
+    }
+
+    /**
+     * 从 UserContext 获取当前登录用户ID，缺失则抛出业务异常（由全局处理器统一返回401）。
+     */
+    private Long requireUserId() {
+        Long userId = UserContext.getUserId();
+        if (userId == null) {
+            throw new BusinessException(ResultCode.UNAUTHORIZED);
+        }
+        return userId;
     }
 }
